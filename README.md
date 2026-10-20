@@ -99,13 +99,16 @@
   <img width="80%" alt="FeetFit 서비스 구성도" src="https://github.com/user-attachments/assets/4352b342-b091-4b0c-b0f0-ecf8e97b3fc2" />
 </p>
 
-앱에서 측정을 시작하면 **Raspberry Pi가 센서 데이터를 수집**하고, **AI 서버가 분석**한 결과를 **Spring Boot 서버를 통해 iOS 앱**에 전달합니다. 측정 진행 상태는 WebSocket/STOMP로 동기화합니다.
+### 3-2. 하드웨어/센서 구성도
 
-### 3-2. 하드웨어 구성도
+<p align="center">
+  <img src="https://github.com/user-attachments/assets/54a9b8e6-8ba3-43e9-ba41-bac0f3ca37e0" width="45%" />
+  <img src="https://github.com/user-attachments/assets/ff439c56-b808-499c-8430-e47cbfa73e60" width="45%" />
+</p>
+
+### 3-3. 하드웨어 구성도
 
 <img width="100%" alt="FeetFit 하드웨어 설계도" src="https://github.com/user-attachments/assets/5bfebef8-5a1b-451c-a628-074cdc0a651b" />
-
-상·하단 카메라, 양발 압력 센서, 온·습도 센서, Raspberry Pi를 결합한 **발 측정 디바이스**입니다.
 
 ---
 
