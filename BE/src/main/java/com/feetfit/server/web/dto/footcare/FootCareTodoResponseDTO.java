@@ -1,0 +1,60 @@
+package com.feetfit.server.web.dto.footcare;
+
+import io.swagger.v3.oas.annotations.media.Schema;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+
+import java.time.LocalDateTime;
+import java.util.List;
+
+public class FootCareTodoResponseDTO {
+
+    @Builder
+    @Getter
+    @NoArgsConstructor
+    @AllArgsConstructor
+    @Schema(description = "발 관리 투두 상세 응답")
+    public static class FootCareTodoInfoResponseDTO {
+        @Schema(description = "사용자 투두 ID. 완료 여부 변경 시 이 값을 path variable로 사용합니다.", example = "1")
+        private Long todoId;
+
+        @Schema(description = "발 관리 투두 제목", example = "수건으로 발 당기기")
+        private String title;
+
+        @Schema(description = "건강 타입", example = "HALLUX_VALGUS", allowableValues = {"ATHLETES_FOOT", "HALLUX_VALGUS", "SKIN_IRRITATION", "POSTURE", "FOOT_ENVIRONMENT"})
+        private String healthType;
+
+        @Schema(description = "발 관리 영상 URL", example = "https://www.youtube.com/watch?v=footcare001")
+        private String youtubeUrl;
+
+        @Schema(description = "완료 여부", example = "false")
+        private Boolean isCompleted;
+
+        @Schema(description = "완료한 시각. 완료 전이면 null", example = "2026-05-20T10:30:00", nullable = true)
+        private LocalDateTime completedAt;
+
+        @Schema(description = "투두가 연결된 시각. 오늘 날짜가 아니어도 계속 표시합니다.", example = "2026-05-20T00:00:00")
+        private LocalDateTime todoDate;
+    }
+
+    @Builder
+    @Getter
+    @NoArgsConstructor
+    @AllArgsConstructor
+    @Schema(description = "최근 발 분석 기반 발 관리 투두 목록 응답")
+    public static class FootCareTodoListResponseDTO {
+        @Schema(description = "현재 연결된 투두 개수", example = "3")
+        private Integer totalCount;
+
+        @Schema(description = "현재 연결된 투두 존재 여부. 기존 호환을 위한 필드명이며, 오늘 측정이 없어도 이전 추천이 있으면 true입니다.", example = "true")
+        private Boolean hasTodayTodos;
+
+        @Schema(description = "조회 결과 메시지", example = "최근 발 분석 기반 발 관리 투두입니다.")
+        private String message;
+
+        @Schema(description = "새 측정의 지표 분석 완료 전까지 유지되는 발 관리 투두 목록")
+        private List<FootCareTodoInfoResponseDTO> todos;
+    }
+}

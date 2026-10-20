@@ -1,0 +1,581 @@
+//
+//  RecommendListViewModel.swift
+//  FeetFit
+//
+//  Created by 이채은 on 5/30/26.
+//
+
+import Foundation
+import Combine
+import Moya
+
+final class RecommendListViewModel: ObservableObject {
+    @Published var shoes: [ShoeInfo] = []
+    @Published var searchResults: [ShoeInfo] = []
+    @Published var relatedSearchResults: [ShoeInfo] = []
+    @Published var recentSearchHistories: [ShoeSearchHistoryDTO] = []
+    
+    @Published var topRecommendedShoes: [ShoeInfo] = []
+    @Published var footTypeText: String?
+    @Published var nickname: String = ""
+    
+    @Published var isLoading: Bool = false
+    @Published var errorMessage: String?
+    @Published var selectedSortType: ShoeSortType = .fit
+    @Published var totalElements: Int = 0
+    
+    private var currentPage: Int = 0
+    private var hasNext: Bool = false
+    
+    private var searchCurrentPage: Int = 0
+    private var searchHasNext: Bool = false
+    private var activeSearchKeyword: String = ""
+    
+    private var relatedSearchCurrentPage: Int = 0
+    private var relatedSearchHasNext: Bool = false
+    private var activeSuggestionKeyword: String = ""
+    
+    private var didLoadInitialData: Bool = false
+    
+    private let shoeProvider = APIManager.shared.createProvider(
+        for: ShoeRoute.self,
+        withAuth: true
+    )
+    
+    func fetchInitialData() {
+        let isInitialLoad = !didLoadInitialData
+        didLoadInitialData = true
+        isLoading = true
+
+        fetchSearchHistory()
+        
+        fetchFootTypeText { [weak self] hasMeasurement in
+            guard let self else { return }
+            
+            DispatchQueue.main.async {
+                if isInitialLoad || (!hasMeasurement && self.selectedSortType == .fit) {
+                    self.selectedSortType = hasMeasurement ? .fit : .rating
+                }
+                
+                if hasMeasurement {
+                    self.fetchTopRecommendations()
+                } else {
+                    self.topRecommendedShoes = []
+                }
+                
+                self.fetchShoes(page: 0)
+            }
+        }
+    }
+    
+    func updateSortType(_ sortType: ShoeSortType) {
+        guard selectedSortType != sortType else { return }
+        
+        selectedSortType = sortType
+        fetchShoes(page: 0)
+    }
+    
+    func fetchShoes(page: Int = 0) {
+        isLoading = true
+        errorMessage = nil
+        
+        shoeProvider.request(
+            .getShoes(
+                sort: selectedSortType,
+                page: page,
+                size: 20
+            )
+        ) { [weak self] result in
+            guard let self else { return }
+            
+            DispatchQueue.main.async {
+                self.isLoading = false
+            }
+            
+            switch result {
+            case .success(let response):
+                do {
+                    print("신발 목록 조회 statusCode:", response.statusCode)
+                    
+                    let decodedData = try JSONDecoder().decode(
+                        BaseResponse<ShoeListResultDTO>.self,
+                        from: response.data
+                    )
+                    
+                    guard decodedData.isSuccess else {
+                        DispatchQueue.main.async {
+                            self.errorMessage = decodedData.message
+                            ToastManager.shared.show(decodedData.message)
+                        }
+                        return
+                    }
+                    
+                    guard let result = decodedData.result else {
+                        DispatchQueue.main.async {
+                            self.errorMessage = "신발 목록 응답이 비어 있습니다."
+                            ToastManager.shared.show("신발 목록 응답이 비어 있습니다.")
+                        }
+                        return
+                    }
+                    
+                    let mappedShoes = result.shoes.map { $0.toDomain() }
+                    
+                    DispatchQueue.main.async {
+                        if page == 0 {
+                            self.shoes = mappedShoes
+                        } else {
+                            self.shoes += mappedShoes
+                        }
+                        
+                        self.currentPage = result.currentPage
+                        self.hasNext = result.hasNext
+                        self.totalElements = result.totalElements
+                    }
+                    
+                } catch {
+                    print("신발 목록 디코더 오류:", error)
+                    
+                    DispatchQueue.main.async {
+                        self.errorMessage = "신발 목록을 처리하지 못했습니다."
+                        ToastManager.shared.show("신발 목록을 처리하지 못했습니다.")
+                    }
+                }
+                
+            case .failure(let error):
+                print("신발 목록 API 오류:", error)
+
+                if let response = error.response {
+                    print("신발 목록 API 실패 statusCode:", response.statusCode)
+
+                    let errorResponse = try? JSONDecoder().decode(
+                        APIErrorResponse.self,
+                        from: response.data
+                    )
+
+                    let message = errorResponse?.message ?? "신발 목록을 불러오지 못했습니다."
+
+                    DispatchQueue.main.async {
+                        self.errorMessage = message
+                        ToastManager.shared.show(message)
+                    }
+                    return
+                }
+
+                DispatchQueue.main.async {
+                    self.errorMessage = "신발 목록을 불러오지 못했습니다."
+                    ToastManager.shared.show("신발 목록을 불러오지 못했습니다.")
+                }
+            }
+        }
+    }
+
+    func reloadShoes() {
+        fetchShoes(page: 0)
+    }
+    
+    func loadNextPageIfNeeded(currentShoe: ShoeInfo) {
+        guard !isLoading else { return }
+        guard hasNext else { return }
+        guard currentShoe.id == shoes.last?.id else { return }
+        
+        fetchShoes(page: currentPage + 1)
+    }
+    
+    func fetchTopRecommendations() {
+        shoeProvider.request(.getTopRecommendations) { [weak self] result in
+            guard let self else { return }
+            
+            switch result {
+            case .success(let response):
+                do {
+                    print("TOP3 추천 조회 statusCode:", response.statusCode)
+                    
+                    let decodedData = try JSONDecoder().decode(
+                        BaseResponse<ShoeRecommendationResultDTO>.self,
+                        from: response.data
+                    )
+                    
+                    guard decodedData.isSuccess else {
+                        DispatchQueue.main.async {
+                            self.errorMessage = decodedData.message
+                        }
+                        return
+                    }
+                    
+                    guard let result = decodedData.result else {
+                        return
+                    }
+                    
+                    DispatchQueue.main.async {
+                        self.topRecommendedShoes = result.shoes.map { $0.toDomain() }
+                    }
+                    
+                } catch {
+                    print("TOP3 추천 디코더 오류:", error)
+                }
+                
+            case .failure(let error):
+                print("TOP3 추천 API 오류:", error)
+
+                if let response = error.response {
+                    print("TOP3 추천 API 실패 statusCode:", response.statusCode)
+
+                    let errorResponse = try? JSONDecoder().decode(
+                        APIErrorResponse.self,
+                        from: response.data
+                    )
+
+                    if let message = errorResponse?.message {
+                        print("TOP3 추천 API 실패 메시지:", message)
+                    }
+                }
+            }
+        }
+    }
+    
+    func searchShoes(keyword: String, page: Int = 0) {
+        let trimmedKeyword = keyword.trimmingCharacters(in: .whitespacesAndNewlines)
+        
+        guard !trimmedKeyword.isEmpty else {
+            clearSearchResults()
+            return
+        }
+        
+        activeSearchKeyword = trimmedKeyword
+        
+        if page == 0 {
+            searchResults = []
+            searchCurrentPage = 0
+            searchHasNext = false
+        }
+        
+        shoeProvider.request(
+            .searchShoes(
+                keyword: trimmedKeyword,
+                page: page,
+                size: 20
+            )
+        ) { [weak self] result in
+            guard let self else { return }
+            guard trimmedKeyword == self.activeSearchKeyword else { return }
+            
+            switch result {
+            case .success(let response):
+                do {
+                    print("신발 검색 statusCode:", response.statusCode)
+                    
+                    let decodedData = try JSONDecoder().decode(
+                        BaseResponse<ShoeSearchResultDTO>.self,
+                        from: response.data
+                    )
+                    
+                    guard decodedData.isSuccess else {
+                        DispatchQueue.main.async {
+                            guard trimmedKeyword == self.activeSearchKeyword else { return }
+                            self.errorMessage = decodedData.message
+                            ToastManager.shared.show(decodedData.message)
+                        }
+                        return
+                    }
+                    
+                    guard let result = decodedData.result else {
+                        return
+                    }
+                    
+                    let mappedShoes = result.results.map { $0.toDomain() }
+                    
+                    DispatchQueue.main.async {
+                        guard trimmedKeyword == self.activeSearchKeyword else { return }
+                        
+                        if page == 0 {
+                            self.searchResults = mappedShoes
+                        } else {
+                            self.searchResults += mappedShoes
+                        }
+                        
+                        self.searchCurrentPage = result.currentPage
+                        self.searchHasNext = result.hasNext
+                    }
+                    
+                } catch {
+                    print("신발 검색 디코더 오류:", error)
+                }
+                
+            case .failure(let error):
+                print("신발 검색 API 오류:", error)
+
+                if let response = error.response {
+                    let errorResponse = try? JSONDecoder().decode(
+                        APIErrorResponse.self,
+                        from: response.data
+                    )
+
+                    let message = errorResponse?.message ?? "신발 검색에 실패했습니다."
+
+                    DispatchQueue.main.async {
+                        guard trimmedKeyword == self.activeSearchKeyword else { return }
+                        self.errorMessage = message
+                        ToastManager.shared.show(message)
+                    }
+                    return
+                }
+
+                DispatchQueue.main.async {
+                    guard trimmedKeyword == self.activeSearchKeyword else { return }
+                    self.errorMessage = "신발 검색에 실패했습니다."
+                    ToastManager.shared.show("신발 검색에 실패했습니다.")
+                }
+            }
+        }
+    }
+
+    func searchShoeSuggestions(keyword: String, page: Int = 0) {
+        let trimmedKeyword = keyword.trimmingCharacters(in: .whitespacesAndNewlines)
+        
+        guard !trimmedKeyword.isEmpty else {
+            clearRelatedSearchResults()
+            return
+        }
+        
+        activeSuggestionKeyword = trimmedKeyword
+        
+        if page == 0 {
+            relatedSearchResults = []
+            relatedSearchCurrentPage = 0
+            relatedSearchHasNext = false
+        }
+        
+        shoeProvider.request(
+            .searchShoeSuggestions(
+                keyword: trimmedKeyword,
+                page: page,
+                size: 20
+            )
+        ) { [weak self] result in
+            guard let self else { return }
+            guard trimmedKeyword == self.activeSuggestionKeyword else { return }
+            
+            switch result {
+            case .success(let response):
+                do {
+                    print("연관 검색어 조회 statusCode:", response.statusCode)
+                    
+                    let decodedData = try JSONDecoder().decode(
+                        BaseResponse<ShoeSearchResultDTO>.self,
+                        from: response.data
+                    )
+                    
+                    guard decodedData.isSuccess else {
+                        DispatchQueue.main.async {
+                            guard trimmedKeyword == self.activeSuggestionKeyword else { return }
+                            self.errorMessage = decodedData.message
+                        }
+                        return
+                    }
+                    
+                    guard let result = decodedData.result else {
+                        return
+                    }
+                    
+                    let mappedShoes = result.results.map { $0.toDomain() }
+                    
+                    DispatchQueue.main.async {
+                        guard trimmedKeyword == self.activeSuggestionKeyword else { return }
+                        
+                        if page == 0 {
+                            self.relatedSearchResults = mappedShoes
+                        } else {
+                            self.relatedSearchResults += mappedShoes
+                        }
+                        
+                        self.relatedSearchCurrentPage = result.currentPage
+                        self.relatedSearchHasNext = result.hasNext
+                    }
+                    
+                } catch {
+                    print("연관 검색어 디코더 오류:", error)
+                }
+                
+            case .failure(let error):
+                print("연관 검색어 API 오류:", error)
+            }
+        }
+    }
+    
+    func fetchSearchHistory() {
+        shoeProvider.request(.getSearchHistory) { [weak self] result in
+            guard let self else { return }
+            
+            switch result {
+            case .success(let response):
+                do {
+                    print("검색 기록 조회 statusCode:", response.statusCode)
+                    
+                    let decodedData = try JSONDecoder().decode(
+                        BaseResponse<ShoeSearchHistoryResultDTO>.self,
+                        from: response.data
+                    )
+                    
+                    guard decodedData.isSuccess else {
+                        return
+                    }
+                    
+                    guard let result = decodedData.result else {
+                        return
+                    }
+                    
+                    DispatchQueue.main.async {
+                        self.recentSearchHistories = result.histories
+                    }
+                    
+                } catch {
+                    print("검색 기록 디코더 오류:", error)
+                }
+                
+            case .failure(let error):
+                print("검색 기록 API 오류:", error)
+            }
+        }
+    }
+    
+    func deleteSearchHistory(historyId: Int) {
+        shoeProvider.request(.deleteSearchHistory(historyId: historyId)) { [weak self] result in
+            guard let self else { return }
+            
+            switch result {
+            case .success(let response):
+                do {
+                    print("검색 기록 삭제 statusCode:", response.statusCode)
+                    
+                    let decodedData = try JSONDecoder().decode(
+                        BaseResponse<EmptyResultDTO>.self,
+                        from: response.data
+                    )
+                    
+                    guard decodedData.isSuccess else {
+                        DispatchQueue.main.async {
+                            self.errorMessage = decodedData.message
+                            ToastManager.shared.show(decodedData.message)
+                        }
+                        return
+                    }
+                    
+                    DispatchQueue.main.async {
+                        self.recentSearchHistories.removeAll { $0.id == historyId }
+                    }
+                    
+                } catch {
+                    print("검색 기록 삭제 디코더 오류:", error)
+                    
+                    DispatchQueue.main.async {
+                        self.errorMessage = "검색 기록 삭제 응답을 처리하지 못했습니다."
+                        ToastManager.shared.show("검색 기록 삭제 응답을 처리하지 못했습니다.")
+                    }
+                }
+                
+            case .failure(let error):
+                print("검색 기록 삭제 API 오류:", error)
+                
+                DispatchQueue.main.async {
+                    self.errorMessage = "검색 기록을 삭제하지 못했습니다."
+                    ToastManager.shared.show("검색 기록을 삭제하지 못했습니다.")
+                }
+            }
+        }
+    }
+    
+    func clearSearchResults() {
+        searchResults = []
+        searchCurrentPage = 0
+        searchHasNext = false
+        activeSearchKeyword = ""
+    }
+    
+    func clearRelatedSearchResults() {
+        relatedSearchResults = []
+        relatedSearchCurrentPage = 0
+        relatedSearchHasNext = false
+        activeSuggestionKeyword = ""
+    }
+    
+    func fetchFootTypeText(completion: ((Bool) -> Void)? = nil) {
+        shoeProvider.request(.getFootTypeText) { [weak self] result in
+            guard let self else { return }
+            
+            switch result {
+            case .success(let response):
+                do {
+                    print("발 타입 문구 조회 statusCode:", response.statusCode)
+                    
+                    let decodedData = try JSONDecoder().decode(
+                        BaseResponse<FootTypeTextResultDTO>.self,
+                        from: response.data
+                    )
+                    
+                    guard decodedData.isSuccess else {
+                        DispatchQueue.main.async {
+                            completion?(false)
+                        }
+                        return
+                    }
+                    
+                    guard let result = decodedData.result else {
+                        DispatchQueue.main.async {
+                            completion?(false)
+                        }
+                        return
+                    }
+                    
+                    let typeText = result.typeText?
+                        .trimmingCharacters(in: .whitespacesAndNewlines)
+                    let hasMeasurement = typeText?.isEmpty == false
+                    
+                    DispatchQueue.main.async {
+                        self.nickname = result.nickname
+                        self.footTypeText = hasMeasurement ? typeText : nil
+                        completion?(hasMeasurement)
+                    }
+                    
+                } catch {
+                    print("발 타입 문구 디코더 오류:", error)
+                    
+                    DispatchQueue.main.async {
+                        completion?(false)
+                    }
+                }
+                
+            case .failure(let error):
+                print("발 타입 문구 API 오류:", error)
+
+                if let response = error.response {
+                    let errorResponse = try? JSONDecoder().decode(
+                        APIErrorResponse.self,
+                        from: response.data
+                    )
+
+                    if let message = errorResponse?.message {
+                        DispatchQueue.main.async {
+                            ToastManager.shared.show(message)
+                        }
+                    }
+                }
+
+                DispatchQueue.main.async {
+                    completion?(false)
+                }
+            }
+        }
+    }
+
+    func registerShoeClick(shoeId: Int) {
+        shoeProvider.request(.registerClick(shoeId: shoeId)) { result in
+            switch result {
+            case .success(let response):
+                print("신발 클릭 등록 statusCode:", response.statusCode)
+                
+            case .failure(let error):
+                print("신발 클릭 등록 API 오류:", error)
+            }
+        }
+    }
+}

@@ -1,0 +1,57 @@
+package com.feetfit.server.converter;
+
+import com.feetfit.server.domain.Device;
+import com.feetfit.server.domain.MeasurementSession;
+import com.feetfit.server.domain.User;
+import com.feetfit.server.service.MeasurementService.MeasurementFailureMessageResolver;
+import com.feetfit.server.web.dto.measurement.MeasurementResponseDTO;
+
+import java.time.LocalDateTime;
+
+public class MeasurementConverter {
+
+    public static MeasurementSession toMeasurementSession(User user, Device device) {
+        return MeasurementSession.builder()
+                .user(user)
+                .device(device)
+                .measuredAt(LocalDateTime.now())
+                .build();
+    }
+
+    public static MeasurementResponseDTO.CreateMeasurementSessionResultDTO toCreateMeasurementSessionResultDTO(
+            MeasurementSession measurementSession) {
+        return MeasurementResponseDTO.CreateMeasurementSessionResultDTO.builder()
+                .id(measurementSession.getId())
+                .deviceId(measurementSession.getDevice().getId())
+                .status(measurementSession.getStatus())
+                .measuredAt(measurementSession.getMeasuredAt())
+                .createdAt(measurementSession.getCreatedAt())
+                .webSocketTopic("/topic/measurements/" + measurementSession.getId())
+                .build();
+    }
+
+    public static MeasurementResponseDTO.UpdateMeasurementStatusResultDTO toUpdateMeasurementStatusResultDTO(
+            MeasurementSession measurementSession) {
+        return MeasurementResponseDTO.UpdateMeasurementStatusResultDTO.builder()
+                .id(measurementSession.getId())
+                .status(measurementSession.getStatus())
+                .measurementDurationSec(measurementSession.getMeasurementDurationSec())
+                .photoCaptureAttempt(measurementSession.getPhotoRecaptureCount())
+                .remainingPhotoRecaptures(measurementSession.getRemainingPhotoRecaptures())
+                .pressureMeasurementAttempt(measurementSession.getPressureRetryCount())
+                .remainingPressureRetries(measurementSession.getRemainingPressureRetries())
+                .detail(resolveRetryDetail(measurementSession))
+                .failureReason(measurementSession.getFailureReason())
+                .failureMessage(MeasurementFailureMessageResolver.resolve(measurementSession.getFailureReason()))
+                .failureDetail(measurementSession.getFailureDetail())
+                .updatedAt(measurementSession.getUpdatedAt())
+                .build();
+    }
+
+    private static String resolveRetryDetail(MeasurementSession measurementSession) {
+        if (measurementSession.getPressureRetryDetail() != null) {
+            return measurementSession.getPressureRetryDetail();
+        }
+        return measurementSession.getRecaptureDetail();
+    }
+}
