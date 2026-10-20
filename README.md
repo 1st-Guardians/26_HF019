@@ -6,7 +6,7 @@
 **FeetFit: 멀티모달 기반 발 상태 분석 및 건강 관리 시스템**  
 *누구나 간편하게 발을 측정하고, 변화까지 관리할 수 있도록*
 
-`2026 한이음 드림업` · `26_HF019` · `Team Guardians (가디언즈)`
+`2026 한이음 드림업` · `26_HF019`
 
 
 <img width="800" alt="FeetFit 시스템 개요" src="https://github.com/user-attachments/assets/a3c66129-80a3-48e8-869a-f68483fcf924" />
